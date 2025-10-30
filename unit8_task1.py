@@ -1,4 +1,5 @@
 import requests
+from requests.exceptions import RequestException
 from bs4 import BeautifulSoup
 from bs4.element import NavigableString
 import json
@@ -7,29 +8,37 @@ import xml.etree.ElementTree as ET
 from typing import List, Dict, Any, Optional
 
 def get_names_page(num: int) -> Optional[str]:
+    """
+    Fetches the HTML content for a given page number from behindthename.com.
+    
+    Args:
+        num: The page number to fetch.
+        
+    Returns:
+        The HTML content as a string, or None if an error occurs.
+    """
     # Construct the URL for the specific page number
     url = f"https://www.behindthename.com/names/{num}"
-
+    
+    # Set a User-Agent to be a good web citizen
     headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.36'
+        'User-Agent': 'YourAppName/1.0 (YourSchoolOrPersonalProject; your-email@example.com)'
     }
-
+    
     try:
-        # Make the HTTP GET request
         response = requests.get(url, headers=headers)
-        # Raise an exception for bad responses (like 404s or 500s)
-        response.raise_for_status() 
-        # Return the HTML content as a string
+        # Raise an exception for bad status codes (4xx or 5xx)
+        response.raise_for_status()
         return response.text
-    except requests.RequestException as e:
+    except RequestException as e:
         print(f"Error fetching page {num}: {e}")
         return None
-    
+
 def extract_page_count(page_text: str) -> int:
     soup = BeautifulSoup(page_text, 'html.parser')
     
-    max_page = 98
-    pagination = soup.find('div', class_='pagination')
+    max_page = 0
+    pagination = soup.find('nav', class_='pagination')
     
     if pagination:
         # Find all links within the pagination div
@@ -46,272 +55,209 @@ def extract_page_count(page_text: str) -> int:
 
 def extract_names_from_page(page_text: str, gender: bool = True, usage: bool = False, desc: bool = False) -> Dict[str, Dict[str, Any]]:
     """
-    Parses the HTML text of a page and extracts name data.
+    Parses the HTML text of a page and extracts name data based on parameters.
+    
+    Args:
+        page_text: The HTML content of a page.
+        gender: Include gender information.
+        usage: Include usage (origin/language) information.
+        desc: Include description information.
+        
+    Returns:
+        A dictionary where keys are names and values are dicts of their data.
     """
     soup = BeautifulSoup(page_text, 'html.parser')
+    results: Dict[str, Dict[str, Any]] = {}
     
-    # This dictionary will hold all the names from this page
-    names_dict = {}
+    # Find all name entries, which are marked by a span with class "listname"
+    name_spans = soup.find_all('span', class_='listname')
     
-    # Find all the main "name blocks". 
-    name_blocks = soup.find_all('div', class_='browsename')
-
-    # Loop through every name block found on the page
-    for block in name_blocks:
+    for name_span in name_spans:
+        # Get the name (text inside the <span>)
+        name = name_span.text.strip()
         
-        # Find the name itself, which is inside an <a> (link) tag
-        name_tag = block.find('a', class_='nll')
+        # The parent <div> contains the siblings
+        parent_div = name_span.parent
         
-        # If there's no <a> tag, it's not a valid entry, so we skip it.
-        if not name_tag:
-            continue
-            
-        name = name_tag.text
-        data_payload: Dict[str, Any] = {} # new dictionary
-
-
+        # The description is in the next sibling <div> with class "listdesc"
+        desc_div = parent_div.find_next_sibling('div', class_='listdesc')
+        
+        name_data: Dict[str, Any] = {}
+        
+        # Process Gender
         if gender:
-            data_payload['gender'] = "" # Default empty string
-        if usage:
-            data_payload['usage'] = [] # Default empty list
-        if desc:
-            data_payload['desc'] = "" # Default empty string
-
-        #  Find the gender IF the user wants it (gender=True)
-        if gender:
-            gender_tag = block.find('span', class_='gengender')
-            if gender_tag:
-                # The gender is in the title attribute of the inner span (e.g., <span class="masc" title="masculine">)
-                data_payload['gender'] = gender_tag.text.strip()
-                # gender_inner_span = gender_tag.find('span')
-                # if gender_inner_span and gender_inner_span.has_attr('title'):
-                #     data_payload['gender'] = gender_inner_span['title']
-            
-        # Find the usage IF the user wants it (usage=True)
-        if usage:
-            usage_list = []
-            # Find all usage links within the listusage span
-            usage_links = block.select('span.listusage a.usg')
-            for link in usage_links:
-                usage_list.append(link.text.strip())
-            if usage_list:
-                data_payload['usage'] = usage_list
+            gender_span = name_span.find_next_sibling('span', class_='listgender')
+            if gender_span:
+                gender_text = gender_span.text.strip().lower()
+                # Apply the specific logic from your prompt
+                if 'masculine' in gender_text and 'feminine' in gender_text:
+                    name_data['gender'] = 'm & f'
+                elif 'masculine' in gender_text:
+                    name_data['gender'] = 'm'
+                elif 'feminine' in gender_text:
+                    name_data['gender'] = 'f'
+                else:
+                    name_data['gender'] = gender_text # Fallback
         
-        # Find the description IF the user wants it (desc=True)
+        # Process Usage
+        if usage:
+            usage_span = name_span.find_next_sibling('span', class_='listusage')
+            if usage_span:
+                # Find all <a> tags within the usage span to get each usage part
+                usage_links = usage_span.find_all('a')
+                name_data['usage'] = [u.text.strip() for u in usage_links]
+        
+        # Process Description
         if desc:
-            desc_to_add = "" # A variable to hold our description
-            
-            # First, try to find the description in a 'div.namedesc' tag
-            desc_tag = block.find('div', class_='namedesc')
-            if desc_tag:
-                desc_to_add = desc_tag.text.strip()
-            else:
-                # If that fails, try the <br> tag method as the comment suggests
-                br_tag = block.find('br')
-                if br_tag:
-                    # Look at the *next* sibling that is a non-empty string
-                    for sibling in br_tag.next_siblings:
-                        if isinstance(sibling, NavigableString):
-                            sibling_text = sibling.strip()
-                            if sibling_text:
-                                desc_to_add = sibling_text
-                                break # Found the description, stop looping
-                        else:
-                            # Hit another tag, stop
-                            break
-            
-            # If we found a description by *either* method, add it
-            if desc_to_add:
-                data_payload['desc'] = desc_to_add
+            br_tag = parent_div.find('br')
+            if br_tag:
+                desc_parts = []
+                current_node = br_tag.next_sibling
+                while current_node:
+                    if getattr(current_node, 'name', None) == 'span' and 'namedesc' in getattr(current_node, 'attrs', {}).get('id', ''):
+                        break
 
-        # data to our main dictionary
-        if name:
-            names_dict[name] = data_payload
+                    if isinstance(current_node, NavigableString):
+                        desc_parts.append(str(current_node))
+                    elif hasattr(current_node, 'get_text'):
+                        desc_parts.append(current_node.get_text())
+                    
+                    current_node = current_node.next_sibling
+                full_desc = ''.join(desc_parts).strip()
+                if full_desc:
+                    name_data['desc'] = full_desc
+                
+            # if desc_div:
+            #     name_data['desc'] = desc_div.text.strip()
+        
+        # Add the collected data to the main dictionary
+        # This will overwrite duplicates on the same page, as per the dict-key requirement
+        results[name] = name_data
+            
+    return results
 
-    return names_dict
+
 def scrape_names(pages: List[int], output_file_path: str, gender: bool = True, usage: bool = False, desc: bool = False, output_format: str = "csv"):
+    """
+    Scrapes name data from a list of pages and saves to a file in the specified format.
+    
+    Args:
+        pages: A list of page numbers to scrape.
+        output_file_path: The path to the output file (e.g., "names.csv").
+        gender: Include gender information.
+        usage: Include usage information.
+        desc: Include description information.
+        output_format: The format of the output file ("csv", "json", or "xml").
+    """
     
     # This master dictionary will hold all data from all pages
     all_names_data: Dict[str, Dict[str, Any]] = {}
 
-    print(f"Starting to scrape {len(pages)} page(s)...")
-
-    # ---  GATHER  DATA ---
-    for page_num in pages:
-        print(f"Fetching page {page_num}...")
-        html_text = get_names_page(page_num)
-        
-        if html_text:
-            # Step 2: Extract data from that page's HTML
-            names_from_page = extract_names_from_page(
-                html_text, 
-                gender=gender, 
-                usage=usage, 
-                desc=desc
-            )
-            # Add new data to master dictionary
-            all_names_data.update(names_from_page)
-        else:
-            print(f"Warning: Could not fetch page {page_num}. Skipping.")
-
-    print(f"Scraping complete. Total names found: {len(all_names_data)}")
-    print(f"Now writing to file: {output_file_path} as {output_format}")
+    print(f"Starting scrape for {len(pages)} pages...")
     
-    # --- WRITE DATA TO FILE ---
+    for page_num in pages:
+        print(f"Scraping page {page_num}...")
+        html = get_names_page(page_num)
+        if html:
+            page_data = extract_names_from_page(html, gender, usage, desc)
+            # Update the master dictionary
+            # Note: names on later pages will overwrite names from earlier pages
+            all_names_data.update(page_data)
+        else:
+            print(f"Skipping page {page_num} (failed to fetch).")
+    
+    print(f"Scrape complete. Total unique names found: {len(all_names_data)}")
+    print(f"Writing data to {output_file_path} as {output_format}...")
 
+    # Write the aggregated data to the specified file format
+    
     if output_format == "csv":
-        # Define the header based on the parameters
-        #    important for matching the project spec
-        header = ['name']
-        if gender:
-            header.append('gender')
-        if usage:
-            header.append('usage')
-        if desc:
-            header.append('desc')
-
-        try:
-            with open(output_file_path, 'w', newline='', encoding='utf-8') as f:
-                writer = csv.writer(f)
-                
-                # 2. Write the header row
-                writer.writerow(header)
-                
-                # 3. Loop through your data and write each row
-                for name, data in all_names_data.items():
-                    row = [name]
-                    
-                    # .get() is safer than data['key']
-                    # It returns None if the key doesn't exist
-                    
-                    if gender:
-                        row.append(data.get('gender', ''))
-                    if usage:
-                        # Join the list into a string, e.g., "Finnish, Somali"
-                        # [cite: 256]
-                        usage_str = ", ".join(data.get('usage', []))
-                        row.append(usage_str)
-                    if desc:
-                        row.append(data.get('desc', ''))
-                    
-                    writer.writerow(row)
-        except IOError as e:
-            print(f"Error writing CSV file: {e}")
-
-    elif output_format == "json":
-        try:
-            with open(output_file_path, 'w', encoding='utf-8') as f:
-                # indent=4 makes the file human-readable (pretty-printed)
-                json.dump(all_names_data, f, indent=4, ensure_ascii=False)
-        except IOError as e:
-            print(f"Error writing JSON file: {e}")
-
-    elif output_format == "xml":
-        try:
-            # 1. Create the root <names> element [cite: 293]
-            root = ET.Element("names")
-            
-            # 2. Loop through each name in your data
+        # Define header based on boolean flags
+        fieldnames = ['name']
+        if gender: fieldnames.append('gender')
+        if usage: fieldnames.append('usage')
+        if desc: fieldnames.append('desc')
+        
+        with open(output_file_path, 'w', newline='', encoding='utf-8') as f:
+            writer = csv.DictWriter(f, fieldnames=fieldnames)
+            writer.writeheader()
             for name, data in all_names_data.items():
-                # 3. Create the <name> element with its 'value' attribute [cite: 294]
-                name_elem = ET.SubElement(root, "name", value=name)
+                row = {'name': name}
+                if gender:
+                    row['gender'] = data.get('gender')
+                if usage:
+                    # Join the list of usages into a single string for CSV
+                    row['usage'] = ', '.join(data.get('usage', []))
+                if desc:
+                    row['desc'] = data.get('desc')
+                writer.writerow(row)
                 
-                # 4. Add sub-elements *if* they exist in the data
-                if gender and 'gender' in data:
-                    gender_elem = ET.SubElement(name_elem, "gender")
-                    gender_elem.text = data['gender']
-                
-                if usage and 'usage' in data:
-                    usage_list = data['usage']
-                    # Create a new <usage> tag for EACH item in the list [cite: 306, 307]
-                    if not usage_list:
-                        usage_elem = ET.SubElement(name_elem, "usage")
-                        usage_elem.text = ""
-                    else:
-                        # Otherwise, create a tag for each item
-                        for usage_item in usage_list:
-                            usage_elem = ET.SubElement(name_elem, "usage")
-                            usage_elem.text = usage_item
-                    
-                    # for usage_item in data['usage']:
-                    #     usage_elem = ET.SubElement(name_elem, "usage")
-                    #     usage_elem.text = usage_item
-                
-                if desc and 'desc' in data:
-                    desc_elem = ET.SubElement(name_elem, "desc")
-                    desc_elem.text = data['desc']
+    elif output_format == "json":
+        with open(output_file_path, 'w', encoding='utf-8') as f:
+            json.dump(all_names_data, f, indent=4, ensure_ascii=False)
             
-            # 5. Create the full tree and write it to the file
-            tree = ET.ElementTree(root)
-            # This makes the XML pretty-printed
-            ET.indent(tree, space="  ") 
-            tree.write(output_file_path, encoding='utf-8', xml_declaration=True)
+    elif output_format == "xml":
+        root = ET.Element('names')
+        for name, data in all_names_data.items():
+            name_elem = ET.SubElement(root, 'name', value=name)
             
-        except IOError as e:
-            print(f"Error writing XML file: {e}")
+            if gender and data.get('gender'):
+                ET.SubElement(name_elem, 'gender').text = data.get('gender')
+                
+            if usage and data.get('usage'):
+                # Create a separate <usage> tag for each item in the list
+                for u in data.get('usage', []):
+                    ET.SubElement(name_elem, 'usage').text = u
+            
+            if desc and data.get('desc'):
+                ET.SubElement(name_elem, 'desc').text = data.get('desc')
+                
+        tree = ET.ElementTree(root)
+        # Pretty-print the XML
+        ET.indent(tree, space="  ")
+        tree.write(output_file_path, encoding='utf-8', xml_declaration=True)
+        
+    else:
+        print(f"Error: Unsupported output format '{output_format}'. Please use 'csv', 'json', or 'xml'.")
+
+    print("File writing complete.")
+
 
 if __name__ == "__main__":
     
+    # --- Test get_names_page and extract_page_count ---
     print("--- Testing get_names_page and extract_page_count ---")
-    # First, let's test the helper functions
     test_html = get_names_page(1)
-    
     if test_html:
-        # Test extract_page_count
-        max_page = extract_page_count(test_html)
-        print(f"Successfully found max page: {max_page}")
+        page_count = extract_page_count(test_html)
+        print(f"Total page count detected: {page_count}")
         
-        # Test extract_names_from_page
-        print("\n--- Testing extract_names_from_page (first 5 names) ---")
-        names_data = extract_names_from_page(test_html, gender=True, usage=True, desc=True)
-        
-        count = 0
-        for name, data in names_data.items():
-            print(f"{name}: {data}")
-            count += 1
-            if count >= 5:
+        # --- Test extract_names_from_page ---
+        print("\n--- Testing extract_names_from_page (Page 1) ---")
+        # Test with all flags True
+        page_1_data = extract_names_from_page(test_html, gender=True, usage=True, desc=True)
+        # Print first 3 items
+        for i, (name, data) in enumerate(page_1_data.items()):
+            if i >= 3:
                 break
-    else:
-        print("Failed to fetch test HTML. Halting tests.")
+            print(f"{name}: {data}")
 
-    # --- Testing scrape_names for all 3 formats ---
+    # --- Test scrape_names (3 formats) ---
+    # test
+    test_pages = [1, 2]
     
-    # We'll scrape just two pages for this test
-    pages_to_scrape = [1, 2]
+    print(f"\n--- Testing scrape_names for pages {test_pages} ---")
     
-    print(f"\n--- Testing scrape_names for {pages_to_scrape} ---")
-
-    # Test 1: CSV
-    print("Testing CSV output...")
-    scrape_names(
-        pages=pages_to_scrape,
-        output_file_path="names.csv",
-        gender=True,
-        usage=True,
-        desc=True,
-        output_format="csv"
-    )
-
-    # Test 2: JSON
-    print("Testing JSON output...")
-    scrape_names(
-        pages=pages_to_scrape,
-        output_file_path="names.json",
-        gender=True,
-        usage=True,
-        desc=False, # Test with different flags
-        output_format="json"
-    )
-
-    # Test 3: XML
-    print("Testing XML output...")
-    scrape_names(
-        pages=pages_to_scrape,
-        output_file_path="names.xml",
-        gender=True,
-        usage=True,
-        desc=True,
-        output_format="xml"
-    )
+    # Test CSV
+    print("\nTesting CSV output...")
+    scrape_names(test_pages, "names_output.csv", gender=True, usage=True, desc=True, output_format="csv")
     
-    print("\nAll tests complete. Check your project folder for names.csv, names.json, and names.xml.")
+    # Test JSON
+    print("\nTesting JSON output...")
+    scrape_names(test_pages, "names_output.json", gender=True, usage=True, desc=True, output_format="json")
+
+    # Test XML
+    print("\nTesting XML output...")
+    scrape_names(test_pages, "names_output.xml", gender=True, usage=True, desc=True, output_format="xml")
+    
+    print("\n--- All tests complete. Check output files. ---")
