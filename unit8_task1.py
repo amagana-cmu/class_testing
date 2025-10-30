@@ -69,6 +69,14 @@ def extract_names_from_page(page_text: str, gender: bool = True, usage: bool = F
         name = name_tag.text
         data_payload: Dict[str, Any] = {} # new dictionary
 
+
+        if gender:
+            data_payload['gender'] = "" # Default empty string
+        if usage:
+            data_payload['usage'] = [] # Default empty list
+        if desc:
+            data_payload['desc'] = "" # Default empty string
+
         #  Find the gender IF the user wants it (gender=True)
         if gender:
             gender_tag = block.find('span', class_='gengender')
@@ -214,10 +222,20 @@ def scrape_names(pages: List[int], output_file_path: str, gender: bool = True, u
                     gender_elem.text = data['gender']
                 
                 if usage and 'usage' in data:
+                    usage_list = data['usage']
                     # Create a new <usage> tag for EACH item in the list [cite: 306, 307]
-                    for usage_item in data['usage']:
+                    if not usage_list:
                         usage_elem = ET.SubElement(name_elem, "usage")
-                        usage_elem.text = usage_item
+                        usage_elem.text = ""
+                    else:
+                        # Otherwise, create a tag for each item
+                        for usage_item in usage_list:
+                            usage_elem = ET.SubElement(name_elem, "usage")
+                            usage_elem.text = usage_item
+                    
+                    # for usage_item in data['usage']:
+                    #     usage_elem = ET.SubElement(name_elem, "usage")
+                    #     usage_elem.text = usage_item
                 
                 if desc and 'desc' in data:
                     desc_elem = ET.SubElement(name_elem, "desc")
@@ -230,7 +248,7 @@ def scrape_names(pages: List[int], output_file_path: str, gender: bool = True, u
             tree.write(output_file_path, encoding='utf-8', xml_declaration=True)
             
         except IOError as e:
-            print(f"Error writing XML file: {e}")       
+            print(f"Error writing XML file: {e}")
 
 if __name__ == "__main__":
     
