@@ -28,7 +28,7 @@ def get_names_page(num: int) -> Optional[str]:
 def extract_page_count(page_text: str) -> int:
     soup = BeautifulSoup(page_text, 'html.parser')
     
-    max_page = 0
+    max_page = 98
     pagination = soup.find('div', class_='pagination')
     
     if pagination:
