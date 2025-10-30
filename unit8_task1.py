@@ -91,23 +91,32 @@ def extract_names_from_page(page_text: str, gender: bool = True, usage: bool = F
         
         # Find the description IF the user wants it (desc=True)
         if desc:
-            # The description is the text after the <br> tag.
-            # We can find all text nodes and join them.
-            br_tag = block.find('br')
-            if br_tag:
-                desc_text = ""
-                # Iterate over siblings after the <br>
-                for sibling in br_tag.next_siblings:
-                    if isinstance(sibling, NavigableString):
-                        desc_text += sibling.strip() + " "
-                    else: # It's a tag
-                        desc_text += sibling.get_text(strip=True) + " "
-                
-                desc_tag = block.find('div', class_='namedesc')
+            desc_to_add = "" # A variable to hold our description
+            
+            # First, try to find the description in a 'div.namedesc' tag
+            desc_tag = block.find('div', class_='namedesc')
             if desc_tag:
-                data_payload['desc'] = desc_tag.text.strip()
+                desc_to_add = desc_tag.text.strip()
+            else:
+                # If that fails, try the <br> tag method as the comment suggests
+                br_tag = block.find('br')
+                if br_tag:
+                    # Look at the *next* sibling that is a non-empty string
+                    for sibling in br_tag.next_siblings:
+                        if isinstance(sibling, NavigableString):
+                            sibling_text = sibling.strip()
+                            if sibling_text:
+                                desc_to_add = sibling_text
+                                break # Found the description, stop looping
+                        else:
+                            # Hit another tag, stop
+                            break
+            
+            # If we found a description by *either* method, add it
+            if desc_to_add:
+                data_payload['desc'] = desc_to_add
 
-        #data to our main dictionary
+        # data to our main dictionary
         if name:
             names_dict[name] = data_payload
 
