@@ -79,9 +79,6 @@ def extract_names_from_page(page_text: str, gender: bool = True, usage: bool = F
         # The parent <div> contains the siblings
         parent_div = name_span.parent
         
-        # The description is in the next sibling <div> with class "listdesc"
-        desc_div = parent_div.find_next_sibling('div', class_='listdesc')
-        
         name_data: Dict[str, Any] = {}
         
         # Process Gender
@@ -114,8 +111,9 @@ def extract_names_from_page(page_text: str, gender: bool = True, usage: bool = F
                 desc_parts = []
                 current_node = br_tag.next_sibling
                 while current_node:
-                    if getattr(current_node, 'name', None) == 'span' and 'namedesc' in getattr(current_node, 'attrs', {}).get('id', ''):
-                        break
+                    # FIX: Removed the break condition that was here.
+                    # The loop will now naturally end when there are
+                    # no more siblings, capturing all description text.
 
                     if isinstance(current_node, NavigableString):
                         desc_parts.append(str(current_node))
@@ -123,15 +121,12 @@ def extract_names_from_page(page_text: str, gender: bool = True, usage: bool = F
                         desc_parts.append(current_node.get_text())
                     
                     current_node = current_node.next_sibling
+                
                 full_desc = ''.join(desc_parts).strip()
                 if full_desc:
                     name_data['desc'] = full_desc
-                
-            # if desc_div:
-            #     name_data['desc'] = desc_div.text.strip()
         
         # Add the collected data to the main dictionary
-        # This will overwrite duplicates on the same page, as per the dict-key requirement
         results[name] = name_data
             
     return results
@@ -161,7 +156,6 @@ def scrape_names(pages: List[int], output_file_path: str, gender: bool = True, u
         if html:
             page_data = extract_names_from_page(html, gender, usage, desc)
             # Update the master dictionary
-            # Note: names on later pages will overwrite names from earlier pages
             all_names_data.update(page_data)
         else:
             print(f"Skipping page {page_num} (failed to fetch).")
