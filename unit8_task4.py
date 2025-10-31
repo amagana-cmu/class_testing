@@ -5,6 +5,10 @@ import pygsheets
 from typing import List, Dict, Any, Optional
 import json
 from docx import Document
+from docx.shared import Inches
+from openpyxl import Workbook
+import csv
+import xml.etree.ElementTree as ET
 import os
 
 
@@ -266,8 +270,6 @@ def generate_reminder(
     """
     # Create a new Word document
     document = Document()
-    
-    # Get the 'No Spacing' style to avoid extra spaces between lines 
     style = document.styles['No Spacing']
 
     # Add each line as a new paragraph using the 'No Spacing' style
@@ -275,18 +277,13 @@ def generate_reminder(
     document.add_paragraph(f"{title} {first_name} {last_name}", style=style)
     document.add_paragraph(f"{street}", style=style)
     document.add_paragraph(f"{city}, {state} {zip_code}", style=style)
-
-    
     document.add_paragraph(f"Dear {title} {last_name},", style=style)
-
     # Body of the letter
-    # Format the amount to 2 decimal places 
     document.add_paragraph(
         f"Payment on your XYZ account in the amount of ${amount_owed:.2f} is due.",
         style=style
     )
 
-    # Conditional reminder line 
     if num_reminders > 0:
         # Handle plural "reminder(s)"
         reminder_text = "reminders" if num_reminders > 1 else "reminder"
@@ -298,26 +295,19 @@ def generate_reminder(
     document.add_paragraph(
         "Please, disregard this notice if you have already made the payment.",
         style=style)
+    
 
     # Closing 
     document.add_paragraph("Best Regards.", style=style)
+
     document.add_paragraph("John Doe", style=style)
     document.add_paragraph("Account Manager XYZ", style=style)
 
     # --- File Naming ---
-    # Calculate the new reminder number (num_reminders + 1)
     reminder_num_plus_one = num_reminders + 1
-    
-    # Create the filename in the specified format 
     filename = f"{last_name}_{first_name}_reminder_{reminder_num_plus_one}.docx"
-    
-    # Use os.path.join to safely create the full output path
     full_path = os.path.join(output_dir, filename)
-    
-    # Ensure the output directory exists
     os.makedirs(output_dir, exist_ok=True)
-
-    # Save the document 
     document.save(full_path)
     print(f"Generated reminder for {first_name} {last_name} at {full_path}")
 
@@ -328,7 +318,7 @@ def generate_reminders(start: int, end: int, output_dir: str):
     print(f"Generating reminders for records {start} to {end}...")
     
     # Get the account data from the Google Sheet 
-    accounts = get_accounts_info(start=start, end=end)
+    accounts = get_accounts_info(start=start- 1, end=end - 1)
     
     if not accounts:
         print("No accounts found to generate reminders for.")
@@ -406,4 +396,4 @@ if __name__ == "__main__":
     # Test 2: Generate a batch of reminders
     print("\n--- Testing Task 4: generate_reminders (Batch Files) ---")
     # This will get the first 3 records (0, 1, 2) and create a doc for each
-    generate_reminders(start=0, end=2, output_dir='batch_reminders')
+    generate_reminders(start=1, end=3, output_dir='batch_reminders')
