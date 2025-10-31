@@ -224,25 +224,9 @@ def scrape_names(pages: List[int], output_file_path: str, gender: bool = True, u
 
 
 if __name__ == "__main__":
-    
-    # --- Test get_names_page and extract_page_count ---
-    print("--- Testing get_names_page and extract_page_count ---")
-    test_html = get_names_page(1)
-    if test_html:
-        page_count = extract_page_count(test_html)
-        print(f"Total page count detected: {page_count}")
-        
-        # --- Test extract_names_from_page ---
-        print("\n--- Testing extract_names_from_page (Page 1) ---")
-        # Test with all flags True
-        page_1_data = extract_names_from_page(test_html, gender=True, usage=True, desc=True)
-        # Print first 3 items
-        for i, (name, data) in enumerate(page_1_data.items()):
-            if i >= 3:
-                break
-            print(f"{name}: {data}")
 
-    # --- Test scrape_names (3 formats) ---
+
+    # --- Test scrape_names ( formats) ---
     # test
     test_pages = [1, 2]
     
