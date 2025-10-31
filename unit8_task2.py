@@ -227,25 +227,45 @@ def json_to_excel(json_file_path: str, excel_file_path: str):
     ws = wb.active
     ws.title = "names"
     
-    # Write the header row
-    headers = ['name', 'gender', 'usage', 'desc']
-    ws.append(headers)
-    
     try:
         # Open and load the JSON file
         with open(json_file_path, 'r', encoding='utf-8') as f:
             data = json.load(f)
+
+        if not data:
+            print(f"Warning: {json_file_path} is empty.")
+            wb.save(excel_file_path)
+            return
+        
+        headers = ['name']
+        
+        # Check the keys of the *first* item to see what columns to add
+        # We assume all items in the file have the same structure
+        first_item_keys = data[next(iter(data))].keys()
+        
+        if 'gender' in first_item_keys:
+            headers.append('gender')
+        if 'usage' in first_item_keys:
+            headers.append('usage')
+        if 'desc' in first_item_keys:
+            headers.append('desc')
+            
+        # Write the dynamically created header row
+        ws.append(headers)
             
         # Iterate over the JSON data
         for name, info in data.items():
-            # Get values, providing None as a default
-            gender_val = info.get('gender')
-            # Join the list of usages into a single comma-separated string
-            usage_val = ', '.join(info.get('usage', []))
-            desc_val = info.get('desc')
+            row = [name]
+            if 'gender' in headers:
+                row.append(info.get('gender'))
+            if 'usage' in headers:
+                # Join the list of usages into a single comma-separated string
+                row.append(', '.join(info.get('usage', [])))
+            if 'desc' in headers:
+                row.append(info.get('desc'))
             
             # Append the row to the worksheet
-            ws.append([name, gender_val, usage_val, desc_val])
+            ws.append(row)
             
         # Save the workbook to the specified file
         wb.save(excel_file_path)
@@ -296,38 +316,58 @@ def xml_to_excel(xml_file_path: str, excel_file_path: str):
     ws = wb.active
     ws.title = "names"
     
-    # Write the header row
-    headers = ['name', 'gender', 'usage', 'desc']
-    ws.append(headers)
-    
     try:
         # Parse the XML file
         tree = ET.parse(xml_file_path)
         root = tree.getroot()
         
+        headers = ['name']
+        
+        # Find the first <name> element to check its structure
+        first_name_element = root.find('name')
+        
+        if first_name_element is not None:
+            # Check for child tags in the *first* element
+            if first_name_element.find('gender') is not None:
+                headers.append('gender')
+            if first_name_element.find('usage') is not None:
+                headers.append('usage')
+            if first_name_element.find('desc') is not None:
+                headers.append('desc')
+        else:
+            print(f"Warning: {xml_file_path} contains no <name> elements.")
+            wb.save(excel_file_path)
+            return
+            
+        # Write the dynamically created header row
+        ws.append(headers)
+        # --- END FIX ---
+        
         # Iterate over all <name> elements in the XML
         for name_elem in root.findall('name'):
-            # Get the name from the 'value' attribute
-            name = name_elem.get('value')
+            # --- FIX: DYNAMIC ROW CREATION ---
+            row = [name_elem.get('value')] # Get 'name' from attribute
             
-            # Find gender and desc tags
-            gender_tag = name_elem.find('gender')
-            gender = gender_tag.text if gender_tag is not None else None
+            if 'gender' in headers:
+                gender_tag = name_elem.find('gender')
+                row.append(gender_tag.text if gender_tag is not None else None)
             
-            desc_tag = name_elem.find('desc')
-            desc = desc_tag.text if desc_tag is not None else None
+            if 'usage' in headers:
+                usage_tags = name_elem.findall('usage')
+                row.append(', '.join([tag.text for tag in usage_tags if tag.text]))
             
-            # Find *all* 'usage' tags and join their text
-            usage_tags = name_elem.findall('usage')
-            usage = ', '.join([tag.text for tag in usage_tags if tag.text])
+            if 'desc' in headers:
+                desc_tag = name_elem.find('desc')
+                row.append(desc_tag.text if desc_tag is not None else None)
             
-            # Append the row
-            ws.append([name, gender, usage, desc])
-            
+            # Append the dynamically created row
+            ws.append(row)
+
+
         # Save the workbook
         wb.save(excel_file_path)
         print(f"Successfully converted {xml_file_path} to {excel_file_path}")
-
+        
     except FileNotFoundError:
         print(f"Error: The file {xml_file_path} was not found.")
     except ET.ParseError:
