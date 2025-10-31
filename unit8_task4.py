@@ -4,6 +4,9 @@
 import pygsheets
 from typing import List, Dict, Any, Optional
 import json
+from docx import Document
+import os
+
 
 def json_to_excel(json_file_path: str, excel_file_path: str):
     """
@@ -246,7 +249,121 @@ def get_accounts_info(fields: Optional[List[str]] = None, start: int = 0, end: i
         return []
     
 
+def generate_reminder(
+    first_name: str,
+    last_name: str,
+    title: str,
+    street: str,
+    city: str,
+    state: str,
+    zip_code: str,
+    amount_owed: float,
+    num_reminders: int,
+    output_dir: str
+):
+    """
+    Generates a single Word document reminder letter.
+    """
+    # Create a new Word document
+    document = Document()
     
+    # Get the 'No Spacing' style to avoid extra spaces between lines 
+    style = document.styles['No Spacing']
+
+    # Add each line as a new paragraph using the 'No Spacing' style
+    # Address block 
+    document.add_paragraph(f"{title} {first_name} {last_name}", style=style)
+    document.add_paragraph(f"{street}", style=style)
+    document.add_paragraph(f"{city}, {state} {zip_code}", style=style)
+
+    
+    document.add_paragraph(f"Dear {title} {last_name},", style=style)
+
+    # Body of the letter
+    # Format the amount to 2 decimal places 
+    document.add_paragraph(
+        f"Payment on your XYZ account in the amount of ${amount_owed:.2f} is due.",
+        style=style
+    )
+
+    # Conditional reminder line 
+    if num_reminders > 0:
+        # Handle plural "reminder(s)"
+        reminder_text = "reminders" if num_reminders > 1 else "reminder"
+        document.add_paragraph(
+            f"We have already sent you {num_reminders} {reminder_text}.",
+            style=style
+        )
+
+    document.add_paragraph(
+        "Please, disregard this notice if you have already made the payment.",
+        style=style)
+
+    # Closing 
+    document.add_paragraph("Best Regards.", style=style)
+    document.add_paragraph("John Doe", style=style)
+    document.add_paragraph("Account Manager XYZ", style=style)
+
+    # --- File Naming ---
+    # Calculate the new reminder number (num_reminders + 1)
+    reminder_num_plus_one = num_reminders + 1
+    
+    # Create the filename in the specified format 
+    filename = f"{last_name}_{first_name}_reminder_{reminder_num_plus_one}.docx"
+    
+    # Use os.path.join to safely create the full output path
+    full_path = os.path.join(output_dir, filename)
+    
+    # Ensure the output directory exists
+    os.makedirs(output_dir, exist_ok=True)
+
+    # Save the document 
+    document.save(full_path)
+    print(f"Generated reminder for {first_name} {last_name} at {full_path}")
+
+def generate_reminders(start: int, end: int, output_dir: str):
+    """
+    Retrieves a batch of accounts and generates a reminder for each one.
+    """
+    print(f"Generating reminders for records {start} to {end}...")
+    
+    # Get the account data from the Google Sheet 
+    accounts = get_accounts_info(start=start, end=end)
+    
+    if not accounts:
+        print("No accounts found to generate reminders for.")
+        return
+
+    # Loop through each account dictionary
+    for account in accounts:
+        try:
+            # Call generate_reminder for each account 
+            # Map the dictionary keys from the sheet to the function parameters
+            generate_reminder(
+                first_name=account['First Name'],
+                last_name=account['Last Name'],
+                title=account['Title'],
+                street=account['Street'],
+                city=account['City'],
+                state=account['State'],
+                # Convert ZIP to string to handle all formats
+                zip_code=str(account['ZIP']), 
+                # Convert Amount Owed to float 
+                amount_owed=float(account['Amount Owed']), 
+                # [Convert Number of Reminders to int 
+                num_reminders=int(account['Number of Reminders']), 
+                output_dir=output_dir
+            )
+        except KeyError as e:
+            print(f"Error: Missing expected data {e} for an account. Skipping.")
+        except ValueError as e:
+            print(f"Error: Invalid data type for an account ({e}). Skipping.")
+        except Exception as e:
+            print(f"An unexpected error occurred for an account: {e}. Skipping.")
+    
+    print("Batch reminder generation complete.")
+
+
 if __name__ == "__main__":
     
     # --- google Test 1: 
@@ -270,3 +387,23 @@ if __name__ == "__main__":
     if data_default:
         print("\nFirst record (default):")
         print(json.dumps(data_default[0], indent=2))    
+
+    # Test 1: Generate a single reminder (like the example) 
+    print("\n--- Testing Task 4: generate_reminder (Single File) ---")
+    generate_reminder(
+        first_name='Rocco', 
+        last_name='Hupp', 
+        title='Mr.', 
+        street='9733 Nancy Wall', 
+        city='South Christopherville', 
+        state='AL', 
+        zip_code='23514', 
+        amount_owed=376.60, 
+        num_reminders=1, 
+        output_dir='test_single_reminder' # Saves to a new folder
+    )
+    
+    # Test 2: Generate a batch of reminders
+    print("\n--- Testing Task 4: generate_reminders (Batch Files) ---")
+    # This will get the first 3 records (0, 1, 2) and create a doc for each
+    generate_reminders(start=0, end=2, output_dir='batch_reminders')
