@@ -7,6 +7,8 @@ import csv
 import xml.etree.ElementTree as ET
 from typing import List, Dict, Any, Optional
 
+from openpyxl import Workbook
+
 def get_names_page(num: int) -> Optional[str]:
     """
     Fetches the HTML content for a given page number from behindthename.com.
@@ -111,10 +113,7 @@ def extract_names_from_page(page_text: str, gender: bool = True, usage: bool = F
                 desc_parts = []
                 current_node = br_tag.next_sibling
                 while current_node:
-                    # FIX: Removed the break condition that was here.
-                    # The loop will now naturally end when there are
-                    # no more siblings, capturing all description text.
-
+                   
                     if isinstance(current_node, NavigableString):
                         desc_parts.append(str(current_node))
                     elif hasattr(current_node, 'get_text'):
@@ -217,25 +216,151 @@ def scrape_names(pages: List[int], output_file_path: str, gender: bool = True, u
     print("File writing complete.")
 
 
+
+
+def json_to_excel(json_file_path: str, excel_file_path: str):
+    """
+    Reads a JSON file produced by scrape_names and writes its contents
+    to an Excel file.
+    """
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "names"
+    
+    # Write the header row
+    headers = ['name', 'gender', 'usage', 'desc']
+    ws.append(headers)
+    
+    try:
+        # Open and load the JSON file
+        with open(json_file_path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+            
+        # Iterate over the JSON data
+        for name, info in data.items():
+            # Get values, providing None as a default
+            gender_val = info.get('gender')
+            # Join the list of usages into a single comma-separated string
+            usage_val = ', '.join(info.get('usage', []))
+            desc_val = info.get('desc')
+            
+            # Append the row to the worksheet
+            ws.append([name, gender_val, usage_val, desc_val])
+            
+        # Save the workbook to the specified file
+        wb.save(excel_file_path)
+        print(f"Successfully converted {json_file_path} to {excel_file_path}")
+        
+    except FileNotFoundError:
+        print(f"Error: The file {json_file_path} was not found.")
+    except json.JSONDecodeError:
+        print(f"Error: Could not decode JSON from {json_file_path}.")
+    except Exception as e:
+        print(f"An error occurred during JSON to Excel conversion: {e}")
+
+
+def csv_to_excel(csv_file_path: str, excel_file_path: str):
+    """
+    Reads a CSV file and writes its contents to an Excel file.
+    """
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "names"
+    
+    try:
+        # Open the CSV file
+        with open(csv_file_path, 'r', encoding='utf-8') as f:
+            # Use csv.reader to read the file
+            reader = csv.reader(f)
+            # Iterate over each row in the CSV
+            for row in reader:
+                # Append the row directly to the worksheet
+                ws.append(row)
+                
+        # Save the workbook
+        wb.save(excel_file_path)
+        print(f"Successfully converted {csv_file_path} to {excel_file_path}")
+
+    except FileNotFoundError:
+        print(f"Error: The file {csv_file_path} was not found.")
+    except Exception as e:
+        print(f"An error occurred during CSV to Excel conversion: {e}")
+
+
+def xml_to_excel(xml_file_path: str, excel_file_path: str):
+    """
+    Reads an XML file produced by scrape_names and writes its contents
+    to an Excel file.
+    """
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "names"
+    
+    # Write the header row
+    headers = ['name', 'gender', 'usage', 'desc']
+    ws.append(headers)
+    
+    try:
+        # Parse the XML file
+        tree = ET.parse(xml_file_path)
+        root = tree.getroot()
+        
+        # Iterate over all <name> elements in the XML
+        for name_elem in root.findall('name'):
+            # Get the name from the 'value' attribute
+            name = name_elem.get('value')
+            
+            # Find gender and desc tags
+            gender_tag = name_elem.find('gender')
+            gender = gender_tag.text if gender_tag is not None else None
+            
+            desc_tag = name_elem.find('desc')
+            desc = desc_tag.text if desc_tag is not None else None
+            
+            # Find *all* 'usage' tags and join their text
+            usage_tags = name_elem.findall('usage')
+            usage = ', '.join([tag.text for tag in usage_tags if tag.text])
+            
+            # Append the row
+            ws.append([name, gender, usage, desc])
+            
+        # Save the workbook
+        wb.save(excel_file_path)
+        print(f"Successfully converted {xml_file_path} to {excel_file_path}")
+
+    except FileNotFoundError:
+        print(f"Error: The file {xml_file_path} was not found.")
+    except ET.ParseError:
+        print(f"Error: Could not parse XML from {xml_file_path}.")
+    except Exception as e:
+        print(f"An error occurred during XML to Excel conversion: {e}")
+
+
 if __name__ == "__main__":
 
 
-    # --- Test scrape_names ( formats) ---
-    # test
-    test_pages = [1, 2]
+    # --- Task 1: Scrape data and create files ---
+    print("--- Running Task 1: Scraping Data ---")
+    test_pages = [1, 2] # Scrape 2 pages for testing
     
-    print(f"\n--- Testing scrape_names for pages {test_pages} ---")
-    
-    # Test CSV
-    print("\nTesting CSV output...")
     scrape_names(test_pages, "names_output.csv", gender=True, usage=True, desc=True, output_format="csv")
-    
-    # Test JSON
-    print("\nTesting JSON output...")
     scrape_names(test_pages, "names_output.json", gender=True, usage=True, desc=True, output_format="json")
-
-    # Test XML
-    print("\nTesting XML output...")
     scrape_names(test_pages, "names_output.xml", gender=True, usage=True, desc=True, output_format="xml")
+    
+    
+    # --- Task 2: Convert files to Excel ---
+    print("\n--- Running Task 2: Converting to Excel ---")
+    
+    # Test JSON to Excel
+    print("Testing JSON to Excel...")
+    json_to_excel("names_output.json", "names_from_json.xlsx")
+    
+    # Test CSV to Excel
+    print("Testing CSV to Excel...")
+    csv_to_excel("names_output.csv", "names_from_csv.xlsx")
+
+    # Test XML to Excel
+    print("Testing XML to Excel...")
+    xml_to_excel("names_output.xml", "names_from_xml.xlsx")
     
     print("\n--- All tests complete. Check output files. ---")
