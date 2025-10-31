@@ -1,222 +1,9 @@
-import requests
-from requests.exceptions import RequestException
-from bs4 import BeautifulSoup
-from bs4.element import NavigableString
-import json
-import csv
-import xml.etree.ElementTree as ET
+##### NEW FILE NAME ##########
+###### retrieve_from_gsheet.py ########
+
+import pygsheets
 from typing import List, Dict, Any, Optional
-
-from openpyxl import Workbook
-
-def get_names_page(num: int) -> Optional[str]:
-    """
-    Fetches the HTML content for a given page number from behindthename.com.
-    
-    Args:
-        num: The page number to fetch.
-        
-    Returns:
-        The HTML content as a string, or None if an error occurs.
-    """
-    # Construct the URL for the specific page number
-    url = f"https://www.behindthename.com/names/{num}"
-    
-    # Set a User-Agent to be a good web citizen
-    headers = {
-        'User-Agent': 'YourAppName/1.0 (YourSchoolOrPersonalProject; your-email@example.com)'
-    }
-    
-    try:
-        response = requests.get(url, headers=headers)
-        # Raise an exception for bad status codes (4xx or 5xx)
-        response.raise_for_status()
-        return response.text
-    except RequestException as e:
-        print(f"Error fetching page {num}: {e}")
-        return None
-
-def extract_page_count(page_text: str) -> int:
-    soup = BeautifulSoup(page_text, 'html.parser')
-    
-    max_page = 0
-    pagination = soup.find('nav', class_='pagination')
-    
-    if pagination:
-        # Find all links within the pagination div
-        links = pagination.find_all('a')
-        
-        for link in links:
-            # Check if the link's text is a number
-            if link.text.isdigit():
-                page_num = int(link.text)
-                if page_num > max_page:
-                    max_page = page_num
-
-    return max_page
-
-def extract_names_from_page(page_text: str, gender: bool = True, usage: bool = False, desc: bool = False) -> Dict[str, Dict[str, Any]]:
-    """
-    Parses the HTML text of a page and extracts name data based on parameters.
-    
-    Args:
-        page_text: The HTML content of a page.
-        gender: Include gender information.
-        usage: Include usage (origin/language) information.
-        desc: Include description information.
-        
-    Returns:
-        A dictionary where keys are names and values are dicts of their data.
-    """
-    soup = BeautifulSoup(page_text, 'html.parser')
-    results: Dict[str, Dict[str, Any]] = {}
-    
-    # Find all name entries, which are marked by a span with class "listname"
-    name_spans = soup.find_all('span', class_='listname')
-    
-    for name_span in name_spans:
-        # Get the name (text inside the <span>)
-        name = name_span.text.strip()
-        
-        # The parent <div> contains the siblings
-        parent_div = name_span.parent
-        
-        name_data: Dict[str, Any] = {}
-        
-        # Process Gender
-        if gender:
-            gender_span = name_span.find_next_sibling('span', class_='listgender')
-            if gender_span:
-                gender_text = gender_span.text.strip().lower()
-                # Apply the specific logic from your prompt
-                if 'masculine' in gender_text and 'feminine' in gender_text:
-                    name_data['gender'] = 'm & f'
-                elif 'masculine' in gender_text:
-                    name_data['gender'] = 'm'
-                elif 'feminine' in gender_text:
-                    name_data['gender'] = 'f'
-                else:
-                    name_data['gender'] = gender_text # Fallback
-        
-        # Process Usage
-        if usage:
-            usage_span = name_span.find_next_sibling('span', class_='listusage')
-            if usage_span:
-                # Find all <a> tags within the usage span to get each usage part
-                usage_links = usage_span.find_all('a')
-                name_data['usage'] = [u.text.strip() for u in usage_links]
-        
-        # Process Description
-        if desc:
-            br_tag = parent_div.find('br')
-            if br_tag:
-                desc_parts = []
-                current_node = br_tag.next_sibling
-                while current_node:
-                   
-                    if isinstance(current_node, NavigableString):
-                        desc_parts.append(str(current_node))
-                    elif hasattr(current_node, 'get_text'):
-                        desc_parts.append(current_node.get_text())
-                    
-                    current_node = current_node.next_sibling
-                
-                full_desc = ''.join(desc_parts).strip()
-                if full_desc:
-                    name_data['desc'] = full_desc
-        
-        # Add the collected data to the main dictionary
-        results[name] = name_data
-            
-    return results
-
-
-def scrape_names(pages: List[int], output_file_path: str, gender: bool = True, usage: bool = False, desc: bool = False, output_format: str = "csv"):
-    """
-    Scrapes name data from a list of pages and saves to a file in the specified format.
-    
-    Args:
-        pages: A list of page numbers to scrape.
-        output_file_path: The path to the output file (e.g., "names.csv").
-        gender: Include gender information.
-        usage: Include usage information.
-        desc: Include description information.
-        output_format: The format of the output file ("csv", "json", or "xml").
-    """
-    
-    # This master dictionary will hold all data from all pages
-    all_names_data: Dict[str, Dict[str, Any]] = {}
-
-    print(f"Starting scrape for {len(pages)} pages...")
-    
-    for page_num in pages:
-        print(f"Scraping page {page_num}...")
-        html = get_names_page(page_num)
-        if html:
-            page_data = extract_names_from_page(html, gender, usage, desc)
-            # Update the master dictionary
-            all_names_data.update(page_data)
-        else:
-            print(f"Skipping page {page_num} (failed to fetch).")
-    
-    print(f"Scrape complete. Total unique names found: {len(all_names_data)}")
-    print(f"Writing data to {output_file_path} as {output_format}...")
-
-    # Write the aggregated data to the specified file format
-    
-    if output_format == "csv":
-        # Define header based on boolean flags
-        fieldnames = ['name']
-        if gender: fieldnames.append('gender')
-        if usage: fieldnames.append('usage')
-        if desc: fieldnames.append('desc')
-        
-        with open(output_file_path, 'w', newline='', encoding='utf-8') as f:
-            writer = csv.DictWriter(f, fieldnames=fieldnames)
-            writer.writeheader()
-            for name, data in all_names_data.items():
-                row = {'name': name}
-                if gender:
-                    row['gender'] = data.get('gender')
-                if usage:
-                    # Join the list of usages into a single string for CSV
-                    row['usage'] = ', '.join(data.get('usage', []))
-                if desc:
-                    row['desc'] = data.get('desc')
-                writer.writerow(row)
-                
-    elif output_format == "json":
-        with open(output_file_path, 'w', encoding='utf-8') as f:
-            json.dump(all_names_data, f, indent=4, ensure_ascii=False)
-            
-    elif output_format == "xml":
-        root = ET.Element('names')
-        for name, data in all_names_data.items():
-            name_elem = ET.SubElement(root, 'name', value=name)
-            
-            if gender and data.get('gender'):
-                ET.SubElement(name_elem, 'gender').text = data.get('gender')
-                
-            if usage and data.get('usage'):
-                # Create a separate <usage> tag for each item in the list
-                for u in data.get('usage', []):
-                    ET.SubElement(name_elem, 'usage').text = u
-            
-            if desc and data.get('desc'):
-                ET.SubElement(name_elem, 'desc').text = data.get('desc')
-                
-        tree = ET.ElementTree(root)
-        # Pretty-print the XML
-        ET.indent(tree, space="  ")
-        tree.write(output_file_path, encoding='utf-8', xml_declaration=True)
-        
-    else:
-        print(f"Error: Unsupported output format '{output_format}'. Please use 'csv', 'json', or 'xml'.")
-
-    print("File writing complete.")
-
-
-
+import json
 
 def json_to_excel(json_file_path: str, excel_file_path: str):
     """
@@ -375,32 +162,111 @@ def xml_to_excel(xml_file_path: str, excel_file_path: str):
     except Exception as e:
         print(f"An error occurred during XML to Excel conversion: {e}")
 
+def get_google_sheet() -> Optional[pygsheets.Worksheet]:
+    """
+    Authenticates with the Google Sheets API using the service account file
+    and returns the 'Accounts' worksheet.
+    
+    Returns:
+        A pygsheets.Worksheet object for the 'Accounts' tab, or None if error.
+    """
+    try:
+        # Authorize using the service account key file specified in the task
+        client = pygsheets.authorize(service_file='algebraic-ratio-338019-eb975aa8f686.json')
+        
+        # Open the Google Spreadsheet by its title, 'Accounts'
+        spreadsheet = client.open('Accounts')
+        
+        # Return the specific worksheet (tab) named 'Accounts'
+        worksheet = spreadsheet.worksheet_by_title('Accounts')
+        
+        return worksheet
+        
+    except pygsheets.exceptions.SpreadsheetNotFound:
+        print("Error: Spreadsheet 'Accounts' not found. Make sure it's shared with the service account email.")
+        return None
+    except pygsheets.exceptions.WorksheetNotFound:
+        print("Error: Worksheet 'Accounts' not found in the spreadsheet.")
+        return None
+    except FileNotFoundError:
+        print("Error: Service account file 'algebraic-ratio-338019-eb975aa8f686.json' not found.")
+        return None
+    except Exception as e:
+        print(f"An error occurred during Google Sheet access: {e}")
+        return None
 
+def get_accounts_info(fields: Optional[List[str]] = None, start: int = 0, end: int = 9) -> List[Dict[str, Any]]:
+    """
+    Retrieves account information from the Google Sheet as a list of dictionaries.
+    
+    Args:
+        fields: A list of column names to retrieve. If None, all columns are retrieved.
+        start: The 0-indexed starting row of data to retrieve.
+        end: The 0-indexed (inclusive) ending row of data to retrieve.
+        
+    Returns:
+        A list of dictionaries, where each dictionary represents a row of data.
+    """
+    
+    # Call the first function to get the authenticated worksheet object
+    worksheet = get_google_sheet()
+    
+    if worksheet is None:
+        print("Failed to retrieve worksheet. Aborting.")
+        return [] # Return an empty list if sheet access failed
+
+    try:
+        # get_all_records() returns a list of dictionaries,
+        # using the first row as the keys. This matches the required output.
+        all_records = worksheet.get_all_records(head=1)
+        
+        # Slice the records based on the 'start' and 'end' parameters.
+        # We add +1 to 'end' because Python slicing is exclusive,
+        # but the task requirement (and default 0-9) is inclusive.
+        sliced_records = all_records[start : end + 1]
+        
+        # If the 'fields' argument is provided, filter each dictionary
+        if fields:
+            processed_records = []
+            for record in sliced_records:
+                # Create a new dictionary containing only the requested fields
+                new_record = {}
+                for field in fields:
+                    if field in record:
+                        new_record[field] = record[field]
+                processed_records.append(new_record)
+            
+            return processed_records
+        else:
+            # If 'fields' is None, return the sliced records as-is
+            return sliced_records
+            
+    except Exception as e:
+        print(f"An error occurred while getting account info: {e}")
+        return []
+    
+
+    
 if __name__ == "__main__":
+    
+    # --- google Test 1: 
+    # Retrieve first 3 records (index 0, 1, 2) with all fields
+    print("--- Testing get_accounts_info(end=2) ---")
+    data_example = get_accounts_info(end=2)
+    print(json.dumps(data_example, indent=2))
+    
+    # --- google Test 2: Retrieve specific fields and a different range ---
+    print("\n--- Testing get_accounts_info(fields=..., start=3, end=5) ---")
+    specific_fields = ['First Name', 'Last Name', 'Amount Owed']
+    data_filtered = get_accounts_info(fields=specific_fields, start=3, end=5)
+    print(json.dumps(data_filtered, indent=2))
 
-
-    # --- Task 1: Scrape data and create files ---
-    print("--- Running Task 1: Scraping Data ---")
-    test_pages = [1, 2] # Scrape 2 pages for testing
-    
-    scrape_names(test_pages, "names_output.csv", gender=True, usage=True, desc=True, output_format="csv")
-    scrape_names(test_pages, "names_output.json", gender=True, usage=True, desc=True, output_format="json")
-    scrape_names(test_pages, "names_output.xml", gender=True, usage=True, desc=True, output_format="xml")
-    
-    
-    # --- Task 2: Convert files to Excel ---
-    print("\n--- Running Task 2: Converting to Excel ---")
-    
-    # Test JSON to Excel
-    print("Testing JSON to Excel...")
-    json_to_excel("names_output.json", "names_from_json.xlsx")
-    
-    # Test CSV to Excel
-    print("Testing CSV to Excel...")
-    csv_to_excel("names_output.csv", "names_from_csv.xlsx")
-
-    # Test XML to Excel
-    print("Testing XML to Excel...")
-    xml_to_excel("names_output.xml", "names_from_xml.xlsx")
-    
-    print("\n--- All tests complete. Check output files. ---")
+    # --- google Test 3: Test default parameters ---
+    print("\n--- Testing get_accounts_info() (default parameters) ---")
+    # Should get rows 0-9, all fields
+    data_default = get_accounts_info()
+    print(f"Retrieved {len(data_default)} records (default is 10).")
+    # Print just the first record to save space
+    if data_default:
+        print("\nFirst record (default):")
+        print(json.dumps(data_default[0], indent=2))    
